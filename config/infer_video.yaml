@@ -1,0 +1,17 @@
+seed: 42
+
+model_path: "/data0/hzj/magic-animate/pretrained_models/stable-diffusion-v1-5"
+vae_path: "/data0/hzj/magic-animate/pretrained_models/sd-vae-ft-mse"
+unet_path: "outputs/checkpoint-8000"
+pretrained_clip_path: 'pretrained_models/open_clip_pytorch_model.bin'
+out_dir: 'image_output'
+
+batch_size: 1
+dataloader_num_workers: 4
+
+infer_data:
+  root:     '/data3/hzj/coser_dataset'
+  size:     [256,256]
+  sample_stride:   4
+  sample_n_frames: 4
+  is_image: false

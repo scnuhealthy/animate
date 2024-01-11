@@ -1,0 +1,27 @@
+seed: 42
+
+model_path: "pretrained_models/stable-diffusion-v1-5"
+vae_path: "pretrained_models/sd-vae-ft-mse"
+clip_model_path: 'pretrained_models/clip-vit-base-patch32'
+
+unet_path: "outputs_stage1_freeze_refer/checkpoint-4000"
+pretrained_poseguider_path: "outputs_stage1_freeze_refer/checkpoint-4000/pose.ckpt"
+pretrained_referencenet_path: 'outputs_stage1_freeze_refer/checkpoint-4000'
+
+
+out_dir: 'image_output_stage1'
+
+batch_size: 2
+dataloader_num_workers: 4
+
+infer_data:
+  # csv_path:     "./data/UBC_train_info_test.csv"
+  csv_path:     "./data/UBC_train_info.csv"
+  video_folder: "../UBC_dataset"
+  sample_size:  512 # for 40G 256
+  sample_stride: 4
+  sample_n_frames: 8
+  clip_model_path: 'pretrained_models/clip-vit-base-patch32'
+
+fusion_blocks: "full"
+image_finetune: true

@@ -1,0 +1,18 @@
+seed: 42
+
+model_path: "pretrained_models/stable-diffusion-v1-5"
+vae_path: "pretrained_models/sd-vae-ft-mse"
+unet_path: "outputs_test_control_crossattn/checkpoint-64000"
+controlnet_path: "outputs_test_control_crossattn/checkpoint-64000"
+pretrained_clip_path: 'pretrained_models/open_clip_pytorch_model.bin'
+out_dir: 'image_output_controlcross'
+
+batch_size: 2
+dataloader_num_workers: 4
+
+infer_data:
+  root:     '/root/autodl-tmp/coser_dataset'
+  size:     [256,256]
+  sample_stride:   4
+  sample_n_frames: 4
+  is_image: true

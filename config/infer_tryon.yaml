@@ -1,0 +1,19 @@
+seed: 42
+
+model_path: "pretrained_models/stable-diffusion-v1-5"
+vae_path: "pretrained_models/sd-vae-ft-mse"
+unet_path: "outputs_test_control_crossattn_tryon/checkpoint-70000"
+controlnet_path: "outputs_test_control_crossattn_tryon/checkpoint-70000"
+pretrained_clip_path: 'pretrained_models/open_clip_pytorch_model.bin'
+out_dir: 'image_output_controlcross_tryon'
+
+batch_size: 10
+dataloader_num_workers: 4
+
+infer_data:
+  root: '/root/autodl-tmp/zalando-hd-resized'
+  datamode: 'test'
+  data_list: 'test_pairs.txt'
+  datasetting: 'unpaired'
+  size: [512,384]
+  semantic_nc: 13
