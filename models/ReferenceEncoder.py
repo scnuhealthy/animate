@@ -22,11 +22,11 @@ class ReferenceEncoder(nn.Module):
     def forward(self, pixel_values):
         outputs = self.model(pixel_values)
         
-        # last_hidden_state = outputs.last_hidden_state
-        # return last_hidden_state
+        last_hidden_state = outputs.last_hidden_state
+        return last_hidden_state
         
-        pooled_output = outputs.pooler_output
-        return pooled_output
+        # pooled_output = outputs.pooler_output
+        # return pooled_output
 
 
 

@@ -15,123 +15,13 @@ import torch.distributed as dist
 def zero_rank_print(s):
     if (not dist.is_initialized()) and (dist.is_initialized() and dist.get_rank() == 0): print("### " + s)
 
-
-class TikTok(Dataset):
+class Talk_Dataset(Dataset):
     def __init__(
             self,
             csv_path, video_folder,
             sample_size=768, sample_stride=4, sample_n_frames=24,
             is_image=False, clip_model_path="openai/clip-vit-base-patch32",
-        ):
-        zero_rank_print(f"loading annotations from {csv_path} ...")
-        with open(csv_path, 'r') as csvfile:
-            self.dataset = list(csv.DictReader(csvfile))
-        self.length = len(self.dataset)
-        zero_rank_print(f"video nums: {self.length}")
-
-        self.video_folder    = video_folder
-        self.sample_stride   = sample_stride
-        self.sample_n_frames = sample_n_frames
-        self.is_image        = is_image
-        
-        self.clip_image_processor = CLIPProcessor.from_pretrained(clip_model_path,local_files_only=True)
-
-        sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
-        self.pixel_transforms = transforms.Compose([
-            # transforms.RandomHorizontalFlip(),
-            transforms.Resize([sample_size[0],sample_size[0]]),
-            transforms.CenterCrop(sample_size),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-        ])
-
-    def __len__(self):
-        return self.length
-    
-    def get_batch(self,idx):
-        video_dict = self.dataset[idx]
-        folder_id, folder_name = video_dict['folder_id'], video_dict['folder_name']
-        
-        video_dir    =    os.path.join(self.video_folder, folder_name, f"{folder_name}.mp4")
-        video_pose_dir =  os.path.join(self.video_folder, folder_name, f"{folder_name}_dwpose.mp4")
-        
-        video_reader = VideoReader(video_dir)
-        video_reader_pose = VideoReader(video_pose_dir)
-        
-        
-        assert len(video_reader) == len(video_reader_pose), f"len(video_reader) != len(video_reader_pose) in video {idx}"
-        
-        video_length = len(video_reader)
-        
-        if not self.is_image:
-            clip_length = min(video_length, (self.sample_n_frames - 1) * self.sample_stride + 1)
-            start_idx   = random.randint(0, video_length - clip_length)
-            batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-        else:
-            batch_index = [random.randint(0, video_length - 1)]
-            
-        pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
-        pixel_values = pixel_values / 255.
-        # del video_reader
-        
-        pixel_values_pose = torch.from_numpy(video_reader_pose.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
-        pixel_values_pose = pixel_values_pose / 255.
-        del video_reader_pose
-        
-        if self.is_image:
-            pixel_values = pixel_values[0]
-            pixel_values_pose = pixel_values_pose[0]
-        
-        ref_img_idx = random.randint(0, video_length - 1)
-        ref_img = video_reader[ref_img_idx]
-        ref_img_pil = Image.fromarray(ref_img.asnumpy())
-        
-        clip_ref_image = self.clip_image_processor(images=ref_img_pil, return_tensors="pt").pixel_values
-        
-        pixel_values_ref_img = torch.from_numpy(ref_img.asnumpy()).permute(2, 0, 1).contiguous()
-        pixel_values_ref_img = pixel_values_ref_img / 255.
-        del video_reader
-        
-        # pixel_values: train objective
-        # pixel_values_pose: corresponding pose
-        # clip_ref_image: processed reference clip image
-        # pixel_values_ref_img: ReferenceNet image
-        return pixel_values, pixel_values_pose, clip_ref_image, pixel_values_ref_img
-    
-    def __getitem__(self, idx):
-        while True:
-            try:
-                pixel_values, pixel_values_pose, clip_ref_image, pixel_values_ref_img = self.get_batch(idx)
-                break
-            except Exception as e:
-                idx = random.randint(0, self.length-1)
-        
-        pixel_values = self.pixel_transforms(pixel_values)
-        pixel_values_pose = self.pixel_transforms(pixel_values_pose)
-        
-        pixel_values_ref_img = pixel_values_ref_img.unsqueeze(0)
-        pixel_values_ref_img = self.pixel_transforms(pixel_values_ref_img)
-        pixel_values_ref_img = pixel_values_ref_img.squeeze(0)
-        
-        # clip_ref_image = clip_ref_image.unsqueeze(1) # [bs,1,768]
-        drop_image_embeds = 1 if random.random() < 0.1 else 0
-
-        sample = dict(
-            pixel_values=pixel_values, 
-            pixel_values_pose=pixel_values_pose,
-            clip_ref_image=clip_ref_image,
-            pixel_values_ref_img=pixel_values_ref_img,
-            drop_image_embeds=drop_image_embeds,
-            )
-        
-        return sample
-
-class UBC_Fashion(Dataset):
-    def __init__(
-            self,
-            csv_path, video_folder,
-            sample_size=768, sample_stride=4, sample_n_frames=24,
-            is_image=False, clip_model_path="openai/clip-vit-base-patch32",
-            is_train=True,
+            is_train=True, sub_folder='deal_chaoming', 
         ):
         zero_rank_print(f"loading annotations from {csv_path} ...")
         with open(csv_path, 'r') as csvfile:
@@ -145,7 +35,7 @@ class UBC_Fashion(Dataset):
         self.is_image        = is_image
         
         self.is_train = is_train
-        self.spilt = 'train' if self.is_train else 'test'
+        self.sub_folder = sub_folder
         
         self.clip_image_processor = CLIPProcessor.from_pretrained(clip_model_path,local_files_only=True)
 
@@ -164,8 +54,8 @@ class UBC_Fashion(Dataset):
         video_dict = self.dataset[idx]
         folder_id, folder_name = video_dict['folder_id'], video_dict['folder_name']
         
-        video_dir    =    os.path.join(self.video_folder, self.spilt, f"{folder_name}.mp4")
-        video_pose_dir =  os.path.join(self.video_folder, self.spilt+"_dwpose", f"{folder_name}.mp4")
+        video_dir    =    os.path.join(self.video_folder, self.sub_folder, f"{folder_name}.mp4")
+        video_pose_dir =  os.path.join(self.video_folder, self.sub_folder+"_dwpose", f"{folder_name}.mp4")
         
         video_reader = VideoReader(video_dir)
         video_reader_pose = VideoReader(video_pose_dir)
@@ -236,9 +126,6 @@ class UBC_Fashion(Dataset):
             )
         
         return sample
-
-
-
 
 # https://github.com/tencent-ailab/IP-Adapter/blob/main/tutorial_train.py#L341
 
@@ -267,9 +154,9 @@ def collate_fn(data):
 if __name__ == "__main__":
     # from animatediff.utils.util import save_videos_grid
 
-    dataset = TikTok(
-        csv_path="TikTok_info.csv",
-        video_folder="../../TikTok_dataset2/TikTok_dataset",
+    dataset = Talk_Dataset(
+        csv_path="Talk_train_info.csv",
+        video_folder="../../Talk_dataset",
         sample_size=256,
         sample_stride=4, sample_n_frames=16,
         is_image=True,

@@ -67,7 +67,7 @@ def get_parameters_without_gradients(model):
     return no_grad_params
 
 def main():
-    args = OmegaConf.load('config/train_stage1.yaml')
+    args = OmegaConf.load('config/train_vae.yaml')
     print(args)
     logging_dir = os.path.join(args.output_dir, args.logging_dir)
     accelerator_project_config = ProjectConfiguration(total_limit=args.checkpoints_total_limit)
@@ -109,98 +109,34 @@ def main():
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
 
-    # image_embedder = FrozenOpenCLIPImageEmbedderV2(freeze=True, model_path=args.pretrained_clip_path)
-    clip_image_encoder = ReferenceEncoder(model_path=args.clip_model_path)
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_path, subfolder="scheduler")
     vae = AutoencoderKL.from_pretrained(args.pretrained_vae_path, subfolder="vae")
-    # poseguider = PoseGuider(noise_latent_channels=320)
-    poseguider = PoseGuider.from_pretrained(pretrained_model_path='outputs_stage1_freeze_refer_TikTok/checkpoint-80000/pose.ckpt')
-    # referencenet = ReferenceNet.from_pretrained(args.pretrained_model_path, subfolder="unet")
-    referencenet = ReferenceNet.from_pretrained('outputs_stage1_freeze_refer_TikTok/checkpoint-80000', subfolder="referencenet")
-    if not args.image_finetune:
-        unet = UNet3DConditionModel.from_pretrained_2d(
-            args.pretrained_model_path, subfolder="unet", 
-            unet_additional_kwargs=OmegaConf.to_container(args.unet_additional_kwargs)
-        )
-    else:
-        # unet = UNet2DConditionModel.from_pretrained(args.pretrained_model_path, subfolder="unet")
-        unet = UNet2DConditionModel.from_pretrained('outputs_stage1_freeze_refer_TikTok/checkpoint-80000', subfolder="unet")
-        # encoder hidden proj
-        # encoder_hid_dim = args.unet_additional_kwargs.encoder_hid_dim
-        # unet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
-        # unet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
-
-    reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=False, mode='write', fusion_blocks=args.fusion_blocks, batch_size=args.train_batch_size ,is_image=args.image_finetune)
-    reference_control_reader = ReferenceNetAttention(unet, do_classifier_free_guidance=False, mode='read', fusion_blocks=args.fusion_blocks, batch_size=args.train_batch_size ,is_image=args.image_finetune)
 
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
-    clip_image_encoder.requires_grad_(False)
-    referencenet.requires_grad_(False)
 
-    # Set unet trainable parameters
-    unet.requires_grad_(False)
-    # unet.requires_grad_(True)
-    for name, param in unet.named_parameters():
+    for name, param in vae.named_parameters():
         for trainable_module_name in args.trainable_modules:
             if trainable_module_name in name:
                 print(name)
                 param.requires_grad = True
                 break
 
-    if args.enable_xformers_memory_efficient_attention:
-        if is_xformers_available():
-            import xformers
-
-            xformers_version = version.parse(xformers.__version__)
-            print('xformer_version', xformers_version)
-            if xformers_version == version.parse("0.0.16"):
-                logger.warn(
-                    "xFormers 0.0.16 cannot be used for training in some GPUs. If you observe problems during training, please update xFormers to at least 0.0.17. See https://huggingface.co/docs/diffusers/main/en/optimization/xformers for more details."
-                )
-            unet.enable_xformers_memory_efficient_attention()
-            referencenet.enable_xformers_memory_efficient_attention()
-        else:
-            raise ValueError("xformers is not available. Make sure it is installed correctly")
-
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
         def save_model_hook(models, weights, output_dir):
-            for i, model in enumerate(models):
-                if i==0:
-                    model.save_pretrained(os.path.join(output_dir, "unet"))
-                elif i==1:
-                    torch.save(model.state_dict(), os.path.join(output_dir, "pose.ckpt"))
-                elif i==2:
-                    # model.save_pretrained(os.path.join(output_dir, "referencenet"))
-                    pass 
-                else:
-                    print('!!!!!!!!!!!!')
-                    pass
-                # make sure to pop weight so that corresponding model is not saved again
-                weights.pop()
+            pass
 
         def load_model_hook(models, input_dir):
             for i in range(len(models)):
                 # pop models so that they are not loaded again
                 model = models.pop()
                 # load diffusers style into model
-                if i==2:
-                    load_model = UNet2DConditionModel.from_pretrained(input_dir, subfolder="unet")
-                    model.register_to_config(**load_model.config)
-                    model.load_state_dict(load_model.state_dict())
-                elif i==0:
-                    load_model = ReferenceNet.from_pretrained(input_dir, subfolder="referencenet")
-                    model.register_to_config(**load_model.config)
-                    model.load_state_dict(load_model.state_dict())
-                elif i==1:
-                    load_model = PoseGuider.from_pretrained(os.path.join(input_dir, 'pose.ckpt'))
-                    model.load_state_dict(load_model.state_dict())
-                else:
-                    print('!!!!!!!!!!!!')
-                    pass
+                load_model = AutoencoderKL.from_pretrained(input_dir, subfolder="vae")
+                model.register_to_config(**load_model.config)
+                model.load_state_dict(load_model.state_dict())
                 del load_model
 
         accelerator.register_save_state_pre_hook(save_model_hook)
@@ -222,11 +158,7 @@ def main():
     # Initialize the optimizer
     optimizer_cls = torch.optim.AdamW
 
-    train_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
-    if args.image_finetune:
-        train_params += list(filter(lambda p: p.requires_grad, poseguider.parameters())) 
-                   # list(filter(lambda p: p.requires_grad, referencenet.parameters()))
-    
+    train_params = list(filter(lambda p: p.requires_grad, vae.parameters()))    
     print(len(train_params))
     optimizer = optimizer_cls(
         train_params,
@@ -268,8 +200,8 @@ def main():
     )
 
     # Prepare everything with our `accelerator`.
-    unet, poseguider, referencenet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        unet, poseguider, referencenet, optimizer, train_dataloader, lr_scheduler
+    vae.decoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+        vae.decoder, optimizer, train_dataloader, lr_scheduler
     )
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
@@ -279,10 +211,11 @@ def main():
         weight_dtype = torch.float16
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
+
     # Move text_encode and vae to gpu and cast to weight_dtype
-    # text_encoder.to(accelerator.device, dtype=weight_dtype)
-    vae.to(accelerator.device, dtype=weight_dtype)
-    clip_image_encoder.to(accelerator.device, dtype=weight_dtype)
+    vae.encoder.to(accelerator.device, dtype=weight_dtype)
+    vae.quant_conv.to(accelerator.device, dtype=weight_dtype)
+    vae.post_quant_conv.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -347,7 +280,7 @@ def main():
         # continue
 
     for epoch in range(first_epoch, args.num_train_epochs):
-        unet.train()
+        vae.decoder.train()
 
         train_loss = 0.0
         # for step, batch in enumerate(train_dataloader):
@@ -356,86 +289,27 @@ def main():
             # Skip steps until we reach the resumed step
 
             pixel_values = batch["pixel_values"].to(weight_dtype)
-            pixel_values_pose = batch["pixel_values_pose"].to(weight_dtype)
-            clip_ref_image = batch["clip_ref_image"].to(weight_dtype)
-            pixel_values_ref_img = batch["pixel_values_ref_img"].to(weight_dtype)
-            drop_image_embeds = batch["drop_image_embeds"]
 
-            dino_fea = clip_image_encoder(clip_ref_image)
-            # dino_fea = dino_fea.unsqueeze(1)
-            # print('000', pixel_values.shape)
-            if not args.image_finetune:
-                video_length = video.shape[1]
-                video = rearrange(video, "b f c h w -> (b f) c h w")
-                dino_fea = repeat(dino_fea, 'b n c -> (b f) n c', f=video_length)
-            with accelerator.accumulate(unet):
+            with accelerator.accumulate(vae.decoder):
                 # We want to learn the denoising process w.r.t the edited images which
                 # are conditioned on the original image (which was edited) and the edit instruction.
                 # So, first, convert images to latent space.
                 latents = vae.encode(pixel_values).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
-                if not args.image_finetune:
-                    latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
 
-                latents_ref_img = vae.encode(pixel_values_ref_img).latent_dist
-                latents_ref_img = latents_ref_img.sample()
-                latents_ref_img = latents_ref_img * vae.config.scaling_factor
+                latents = 1 / vae.config.scaling_factor * latents
+                pred_images = vae.decode(latents).sample
+                pred_images = pred_images.clamp(-1, 1)
 
-                # Sample noise that we'll add to the latents
-                noise = torch.randn_like(latents)
-                bsz = latents.shape[0]
-                # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
-                timesteps = timesteps.long()
-
-                # Add noise to the latents according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
-                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-
-                # Get the pose embedding for conditioning.
-                encoder_hidden_states = dino_fea
-
-                # support cfg train
-                mask = drop_image_embeds > 0
-                mask = mask.unsqueeze(1).unsqueeze(2).expand_as(encoder_hidden_states)
-                encoder_hidden_states[mask] = 0
-
-                if not args.image_finetune:
-                    pixel_values_pose = rearrange(pixel_values_pose, "b f c h w -> (b f) c h w")
-                    latents_pose = poseguider(pixel_values_pose)
-                    latents_pose = rearrange(latents_pose, "(b f) c h w -> b c f h w", f=video_length)
-                else:
-                    latents_pose = poseguider(pixel_values_pose)
-
-                ref_timesteps = torch.zeros_like(timesteps)
-                referencenet(latents_ref_img, ref_timesteps, encoder_hidden_states)
-                reference_control_reader.update(reference_control_writer)
-
-                # Get the target for loss depending on the prediction type
-                if noise_scheduler.config.prediction_type == "epsilon":
-                    target = noise
-                elif noise_scheduler.config.prediction_type == "v_prediction":
-                    target = noise_scheduler.get_velocity(latents, noise, timesteps)
-                else:
-                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
-
-                # Predict the noise residual and compute loss
-                model_pred = unet(noisy_latents, timesteps, encoder_hidden_states, latent_pose=latents_pose).sample
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-                # Gather the losses across all processes for logging (if we use distributed training).
-                avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-                train_loss += avg_loss.item() / args.gradient_accumulation_steps
+                loss = F.mse_loss(pred_images.float(), pixel_values.float(), reduction="mean")
 
                 # Backpropagate
                 accelerator.backward(loss)
 
-                # get_parameters_without_gradients(unet)
+                # get_parameters_without_gradients(vae)
                 # print('11111111111111111111111111')
-                # get_parameters_without_gradients(referencenet)
-                # print('22222222222222222222222222222')
-                # get_parameters_without_gradients(poseguider)
                 # exit()
-                # for name, p in unet.named_parameters():
+                # for name, p in vae.named_parameters():
                 #     if p.grad is None:
                 #         # print('000', name)
                 #         pass
@@ -448,8 +322,6 @@ def main():
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
-                reference_control_reader.clear()
-                reference_control_writer.clear()
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -462,6 +334,7 @@ def main():
                     if accelerator.is_main_process:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
+                        vae.save_pretrained(os.path.join(save_path, "vae"))
                         logger.info(f"Saved state to {save_path}")
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}

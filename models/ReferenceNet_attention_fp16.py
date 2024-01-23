@@ -79,6 +79,7 @@ class ReferenceNetAttention():
                 .to(device)
                 .bool()
             )
+            # print('0000',uc_mask.shape)
         else:
             uc_mask = (
                 torch.Tensor([0] * batch_size * num_images_per_prompt * 2)
@@ -144,6 +145,7 @@ class ReferenceNetAttention():
                                 .to(device)
                                 .bool()
                             )
+                        # print('111111', _uc_mask.shape, norm_hidden_states.shape)
                         hidden_states_c[_uc_mask] = self.attn1(
                             norm_hidden_states[_uc_mask],
                             encoder_hidden_states=norm_hidden_states[_uc_mask],

@@ -23,9 +23,10 @@ from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention_fp16 import ReferenceNetAttention
 from models.ReferenceEncoder import ReferenceEncoder
 from data.dataset import TikTok, collate_fn, UBC_Fashion
+from data.talk_dataset import Talk_Dataset
 from models.hack_unet2d import Hack_UNet2DConditionModel as UNet2DConditionModel
 
-config = OmegaConf.load('infer_stage1.yaml')
+config = OmegaConf.load('config/infer_stage1.yaml')
 
 # seed 
 seed = config.seed
@@ -35,7 +36,9 @@ torch.cuda.manual_seed(seed)
 
 # dataset
 infer_data_config = config.infer_data
-infer_dataset = UBC_Fashion(**infer_data_config,is_image=config.image_finetune)
+infer_dataset = Talk_Dataset(**infer_data_config,is_image=config.image_finetune)
+# infer_dataset = TikTok(**infer_data_config,is_image=config.image_finetune)
+# infer_dataset = UBC_Fashion(**infer_data_config,is_image=config.image_finetune)
 
 test_dataloader = torch.utils.data.DataLoader(
     infer_dataset,
@@ -71,7 +74,6 @@ pipe.enable_xformers_memory_efficient_attention()
 # pipe.to("cuda")
 
 clip_image_encoder = ReferenceEncoder(model_path=config.clip_model_path).to(device='cuda',dtype=torch.float16)
-clip_image_encoder.to
 
 pipe.scheduler = DDIMScheduler(
     beta_start=0.00085,
@@ -88,8 +90,31 @@ if not os.path.exists(out_dir):
     os.makedirs(out_dir)
 
 num_inference_steps = 50
-guidance_scale = 1
+guidance_scale = config.guidance_scale
 weight_dtype = torch.float16
+
+# check vae reconstruction
+# image_idx = 0
+# for i, batch in enumerate(test_dataloader):
+#     video = batch['pixel_values'].to(device='cuda', dtype=torch.float16)
+#     out = video[0].cpu() /2 +0.5
+#     out = out.detach().permute(1,2,0).numpy()
+#     out = (out * 255).astype(np.uint8)
+#     out = Image.fromarray(out)
+#     out.save('%d_test_ori.png' % i)
+
+#     latents = vae.encode(video)
+#     latents = latents.latent_dist.sample()
+
+#     reconstruct_video = vae.decode(latents).sample
+
+#     reconstruct_video = reconstruct_video.clamp(-1, 1)
+#     out = reconstruct_video[0].cpu() /2 +0.5
+#     out = out.detach().permute(1,2,0).numpy()
+#     out = (out * 255).astype(np.uint8)
+#     out = Image.fromarray(out)
+#     out.save('%d_test2.png' % i)
+
 
 image_idx = 0
 for i, batch in enumerate(test_dataloader):
@@ -100,7 +125,7 @@ for i, batch in enumerate(test_dataloader):
     pixel_values_ref_img = batch["pixel_values_ref_img"].to(device='cuda')
 
     dino_fea = clip_image_encoder(clip_ref_image.to(weight_dtype))
-    dino_fea = dino_fea.unsqueeze(1)
+    # dino_fea = dino_fea.unsqueeze(1)
     print(dino_fea.shape) # [bs,1,768]
     edited_images = pipe(
         num_inference_steps=num_inference_steps, 
@@ -113,7 +138,7 @@ for i, batch in enumerate(test_dataloader):
 
     for idx, edited_image in enumerate(edited_images):
         edited_image = torch.tensor(np.array(edited_image)).permute(2,0,1) / 255.0
-        grid = make_image_grid([(pixel_values[idx].cpu() / 2 + 0.5),edited_image.cpu(), (pixel_values_pose[idx].cpu() / 2 + 0.5)], nrow=1)
+        grid = make_image_grid([(pixel_values[idx].cpu() / 2 + 0.5),edited_image.cpu(), (pixel_values_pose[idx].cpu() / 2 + 0.5), (pixel_values_ref_img[idx].cpu() / 2 + 0.5)], nrow=2)
         save_image(grid, os.path.join(out_dir, ('%d.jpg'%image_idx).zfill(6)))
         # save_image(grid, os.path.join(out_dir, name2))
         image_idx +=1

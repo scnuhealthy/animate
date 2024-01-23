@@ -4,10 +4,11 @@ import csv
 dataset_folder = '../../TikTok_dataset'
 csv_path = 'TikTok_info.csv'
 
-dataset_folder = '../../UBC_dataset'
-
 dataset_folder = '../../UBC_dataset/train'
 csv_path = 'UBC_train_info.csv'
+
+dataset_folder = '../../Talk_dataset/test'
+csv_path = 'Talk_test_info.csv'
 
 # dataset_folder = '../../UBC_dataset/test'
 # csv_path = 'UBC_test_info.csv'

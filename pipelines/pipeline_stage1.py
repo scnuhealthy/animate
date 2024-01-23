@@ -106,7 +106,7 @@ class AnimateStage1Pipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: int = 1,
-        dino_fea: Optional[torch.FloatTensor] = None,
+        dino_fea: Optional[torch.FloatTensor] = None, # b n d  b 50 768
     ):
 
         # 0. Check inputs
@@ -117,7 +117,6 @@ class AnimateStage1Pipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
         height, width = source_image.shape[-2:]
 
         device = source_image.device
-        print(device)
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
         # corresponds to doing no classifier free guidance.
@@ -158,9 +157,10 @@ class AnimateStage1Pipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
             latents,
         )
 
-        # if do_classifier_free_guidance:
-        #     negative_image_embeddings = torch.zeros_like(image_embeddings)
-        #     image_embeddings = torch.cat([negative_image_embeddings, image_embeddings])
+        if do_classifier_free_guidance:
+            negative_image_embeddings = torch.zeros_like(image_embeddings)
+            image_embeddings = torch.cat([negative_image_embeddings, image_embeddings])
+            ref_image_latents =  torch.cat([ref_image_latents]*2)
         
         # 7. prepare pose
         latent_pose = self.pose_guider(pose_image)
@@ -175,7 +175,8 @@ class AnimateStage1Pipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
                 # Expand the latents if we are doing classifier free guidance.
                 # The latents are expanded 3 times because for pix2pix the guidance\
                 # is applied for both the text and the input image.
-                latent_model_input = torch.cat([latents] * 3) if do_classifier_free_guidance else latents
+                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                latent_pose_input = torch.cat([latent_pose] * 2 ) if do_classifier_free_guidance else latent_pose 
 
                 # concat latents, image_latents in the channel dimension
                 scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
@@ -197,7 +198,7 @@ class AnimateStage1Pipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
                 noise_pred = self.unet(scaled_latent_model_input, 
                     t, 
                     encoder_hidden_states=image_embeddings,
-                    latent_pose=latent_pose
+                    latent_pose=latent_pose_input
                     ).sample
 
                 # Hack:
@@ -209,10 +210,10 @@ class AnimateStage1Pipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
                     sigma = self.scheduler.sigmas[step_index]
                     noise_pred = latent_model_input - sigma * noise_pred
 
-                # # perform guidance
-                # if do_classifier_free_guidance:
-                #     noise_pred_uncond, noise_pred_text = (noise_pred / counter).chunk(2)
-                #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                # perform guidance
+                if do_classifier_free_guidance:
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # Hack:
                 # For karras style schedulers the model does classifer free guidance using the
@@ -406,6 +407,5 @@ class AnimateStage1Pipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
         batch_size = batch_size * num_images_per_prompt
         ref_image_latents = self.vae.encode(source_image).latent_dist.mean
         ref_image_latents = ref_image_latents * self.vae.config.scaling_factor
-        print(self.vae.config.scaling_factor)
         #ref_image_latents = torch.cat([ref_image_latents], dim=0)
         return ref_image_latents
