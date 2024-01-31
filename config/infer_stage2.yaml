@@ -1,0 +1,79 @@
+seed: 42
+
+model_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/stable-diffusion-v1-5"
+vae_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/sd-vae-ft-mse"
+# vae_path: "ft_vae/checkpoint-11000"
+clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-base-patch32'
+
+#unet_path: "/GPUFS/sysu_wangkz_2/hzj/outputs_stage1_freeze_refer_Talk/checkpoint-40000"
+unet_path: "outputs_stage2_Talk/checkpoint-2000"
+#pretrained_poseguider_path: "/GPUFS/sysu_wangkz_2/hzj/outputs_stage1_freeze_refer_Talk/checkpoint-40000/pose.ckpt"
+pretrained_poseguider_path: "outputs_stage1_freeze_refer_Talk/checkpoint-15000/pose.ckpt"
+#pretrained_referencenet_path: '/GPUFS/sysu_wangkz_2/hzj/outputs_stage1_freeze_refer_TikTok/checkpoint-80000'
+pretrained_referencenet_path: "outputs_stage1_freeze_refer_Talk/checkpoint-15000"
+
+# unet_path: "outputs_stage1_freeze_refer_TikTok/checkpoint-80000"
+# pretrained_poseguider_path: "outputs_stage1_freeze_refer_TikTok/checkpoint-80000/pose.ckpt"
+# pretrained_referencenet_path: 'outputs_stage1_freeze_refer_TikTok/checkpoint-80000'
+
+# unet_path: "outputs_stage1_freeze_refer/checkpoint-240000"
+# pretrained_poseguider_path: "outputs_stage1_freeze_refer/checkpoint-240000/pose.ckpt"
+# pretrained_referencenet_path: 'outputs_stage1_freeze_refer/checkpoint-240000'
+
+
+out_dir: 'image_output_stage2'
+
+batch_size: 1
+dataloader_num_workers: 4
+guidance_scale: 7.5
+
+infer_data:
+  csv_path:     "./data/Talk_test_info.csv"
+  video_folder: "/GPUFS/sysu_wangkz_2/hzj/Talk_dataset"
+  sample_size:  512 # for 40G 256
+  sample_stride: 4
+  sample_n_frames: 16
+  clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-base-patch32'
+  sub_folder: 'deal_test'
+  is_train: false
+
+unet_additional_kwargs:
+  use_motion_module              : false
+  motion_module_resolutions      : [ 1,2,4,8 ]
+  unet_use_cross_frame_attention : false
+  unet_use_temporal_attention    : false
+
+  motion_module_type: Vanilla
+  motion_module_kwargs:
+    num_attention_heads                : 8
+    num_transformer_block              : 1
+    attention_block_types              : [ "Temporal_Self", "Temporal_Self" ]
+    temporal_position_encoding         : true
+    temporal_position_encoding_max_len : 24
+    temporal_attention_dim_div         : 1
+    zero_initialize                    : true
+  encoder_hid_dim: 1280
+  encoder_hid_dim_type: 'text_proj'
+
+# infer_data:
+#   # csv_path:     "./data/UBC_train_info_test.csv"
+#   csv_path:     "./data/TikTok_info.csv"
+#   video_folder: "../TikTok_dataset2/TikTok_dataset"
+#   sample_size:  512 # for 40G 256
+#   sample_stride: 4
+#   sample_n_frames: 8
+#   clip_model_path: 'pretrained_models/clip-vit-base-patch32'
+
+# infer_data:
+#   # csv_path:     "./data/UBC_train_info_test.csv"
+#   csv_path:     "./data/UBC_test_info.csv"
+#   video_folder: "../UBC_dataset"
+#   is_train: false
+#   sample_size:  512 # for 40G 256
+#   sample_stride: 4
+#   sample_n_frames: 8
+#   clip_model_path: 'pretrained_models/clip-vit-base-patch32'
+
+fusion_blocks: "full"
+#losses = np.array(ret)
+image_finetune: false
