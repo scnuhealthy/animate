@@ -501,11 +501,17 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         ]
 
         from diffusers.utils import WEIGHTS_NAME
+        # 用于加载accelerator存的模型
+        import safetensors
+        WEIGHTS_NAME = "diffusion_pytorch_model.safetensors"
         model = cls.from_config(config, **unet_additional_kwargs)
         model_file = os.path.join(pretrained_model_path, WEIGHTS_NAME)
         if not os.path.isfile(model_file):
             raise RuntimeError(f"{model_file} does not exist")
-        state_dict = torch.load(model_file, map_location="cpu")
+        # state_dict = torch.load(model_file, map_location="cpu")
+        state_dict = safetensors.torch.load_file(
+            model_file, device="cpu"
+        )
 
         m, u = model.load_state_dict(state_dict, strict=False)
         print(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)};")

@@ -26,6 +26,9 @@ class Talk_Dataset(Dataset):
         zero_rank_print(f"loading annotations from {csv_path} ...")
         with open(csv_path, 'r') as csvfile:
             self.dataset = list(csv.DictReader(csvfile))
+        if is_train:
+            # 强行增加单个epoch数据量，避免数据量少多次初始化dataloader的操作
+            self.dataset = self.dataset * 1000
         self.length = len(self.dataset)
         zero_rank_print(f"video nums: {self.length}")
 
