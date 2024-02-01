@@ -1,6 +1,6 @@
 image_finetune: false
 
-output_dir: "outputs_stage2_Talk"
+output_dir: "outputs_stage2_Talk_500ID"
 logging_dir: "log"
 pretrained_model_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/stable-diffusion-v1-5"
 pretrained_vae_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/sd-vae-ft-mse"
@@ -8,11 +8,11 @@ pretrained_clip_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-base-
 clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-base-patch32'
 controlnet_model_name_or_path: null
 
-poseguider_checkpoint_path: "/GPUFS/sysu_wangkz_2/zgl/animate/outputs_stage1_freeze_refer_Talk/checkpoint-15000/pose.ckpt"
-stage1_model_path: "/GPUFS/sysu_wangkz_2/zgl/animate/outputs_stage1_freeze_refer_Talk/checkpoint-15000"
+poseguider_checkpoint_path: "/GPUFS/sysu_wangkz_2/zgl/animate/outputs_stage1_Talk_500ID/checkpoint-42000/pose.ckpt"
+stage1_model_path: "/GPUFS/sysu_wangkz_2/zgl/animate/outputs_stage1_Talk_500ID/checkpoint-42000"
 
 unet_additional_kwargs:
-  use_motion_module              : false
+  use_motion_module              : true
   motion_module_resolutions      : [ 1,2,4,8 ]
   unet_use_cross_frame_attention : false
   unet_use_temporal_attention    : false
@@ -39,31 +39,13 @@ noise_scheduler_kwargs:
 
 train_data:
   # csv_path:     "./data/UBC_train_info_test.csv"
-  csv_path:     "./data/Talk_train_info.csv"
-  video_folder: "/GPUFS/sysu_wangkz_2/hzj/Talk_dataset"
+  csv_path:     "./data/Talk_train_info_500ID.csv"
+  video_folder: "/GPUFS/sysu_wangkz_2/zgl/talk_dataset_20240130"
   sample_size:  512 # for 40G 256
   sample_stride: 4
   sample_n_frames: 16
   clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-base-patch32'
-  sub_folder: 'deal_chaoming'
-
-# train_data:
-#   # csv_path:     "./data/UBC_train_info_test.csv"
-#   csv_path:     "./data/TikTok_info.csv"
-#   video_folder: "../TikTok_dataset2/TikTok_dataset"
-#   sample_size:  512 # for 40G 256
-#   sample_stride: 4
-#   sample_n_frames: 8
-#   clip_model_path: 'pretrained_models/clip-vit-base-patch32'
-
-# train_data:
-#   # csv_path:     "./data/UBC_train_info_test.csv"
-#   csv_path:     "./data/UBC_train_info.csv"
-#   video_folder: "../UBC_dataset"
-#   sample_size:  512 # for 40G 256
-#   sample_stride: 4
-#   sample_n_frames: 8
-#   clip_model_path: 'pretrained_models/clip-vit-base-patch32'
+  sub_folder: 'train'
 
 validation_data:
   prompts:
