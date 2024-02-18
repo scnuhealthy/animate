@@ -1,11 +1,18 @@
 image_finetune: true
+from_scratch: true
 
-output_dir: "outputs_stage1_freeze_refer_Talk"
+output_dir: "/data/animate/ckpts/outputs_stage1_test"
 logging_dir: "log"
-pretrained_model_path: "pretrained_models/stable-diffusion-v1-5"
-pretrained_vae_path: "pretrained_models/sd-vae-ft-mse"
-pretrained_clip_path: 'pretrained_models/open_clip_pytorch_model.bin'
-clip_model_path: 'pretrained_models/clip-vit-base-patch32'
+pretrained_model_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/stable-diffusion-v2-1"
+pretrained_vae_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/sd-vae-ft-mse"
+pretrained_clip_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-large-patch14'
+clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-large-patch14'
+
+# trained stage1 model
+trained_unet_path: "outputs_stage1_freeze_refer_TikTok/checkpoint-80000"
+trained_referencenet_path: "outputs_stage1_freeze_refer_TikTok/checkpoint-80000"
+trained_pose_guider_path: "outputs_stage1_freeze_refer_TikTok/checkpoint-80000/pose.ckpt"
+
 controlnet_model_name_or_path: null
 
 unet_additional_kwargs:
@@ -23,7 +30,7 @@ unet_additional_kwargs:
     temporal_position_encoding_max_len : 24
     temporal_attention_dim_div         : 1
     zero_initialize                    : true
-  encoder_hid_dim: 1280
+  encoder_hid_dim: 1024
   encoder_hid_dim_type: 'text_proj'
 
 noise_scheduler_kwargs:
@@ -35,14 +42,18 @@ noise_scheduler_kwargs:
   clip_sample:         false
 
 train_data:
-  # csv_path:     "./data/UBC_train_info_test.csv"
-  csv_path:     "./data/Talk_train_info.csv"
-  video_folder: "../Talk_dataset"
-  sample_size:  512 # for 40G 256
+  #csv_path:     "./data/UBC_train_info_test.csv"
+  csv_path:     "./data/ms_dataset_0207_train.csv"
+  video_folder: "/data/animate/ms_dataset_0207"
+  #csv_path:     "./data/Talk_debug_train_info.csv"
+  #video_folder: "/GPUFS/sysu_wangkz_2/zgl/Talk_dataset_debug"
+  sample_size:  768 # for 40G 256
   sample_stride: 4
   sample_n_frames: 8
-  clip_model_path: 'pretrained_models/clip-vit-base-patch32'
-  sub_folder: 'deal_chaoming'
+  clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-large-patch14'
+  #sub_folder: 'deal_chaoming'
+  sub_folder: 'train'
+  is_train: true
 
 # train_data:
 #   # csv_path:     "./data/UBC_train_info_test.csv"
@@ -86,7 +97,7 @@ adam_beta2: 0.999
 adam_weight_decay: 1.e-2
 adam_epsilon: 1.e-08
 learning_rate: 5.e-5
-train_batch_size: 6
+train_batch_size:  16 # 6
 gradient_accumulation_steps: 1
 max_grad_norm: 1.0
 
@@ -95,7 +106,7 @@ lr_warmup_steps: 0
 
 num_train_epochs:     40000
 max_train_steps:      null
-checkpointing_steps:  10000
+checkpointing_steps:  3000
 
 validation_steps:       5000
 validation_steps_tuple: [2, 50]
