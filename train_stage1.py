@@ -35,7 +35,6 @@ from torchvision.utils import save_image
 from einops import rearrange, repeat
 from omegaconf import OmegaConf
 
-from VideoDataset import VideoDataset
 from models.unet import UNet3DConditionModel
 from models.condition_encoder import FrozenOpenCLIPImageEmbedderV2
 # from animatediff.pipelines.pipeline_animation import AnimationPipeline
@@ -114,22 +113,28 @@ def main():
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_path, subfolder="scheduler")
     vae = AutoencoderKL.from_pretrained(args.pretrained_vae_path, subfolder="vae")
-    # poseguider = PoseGuider(noise_latent_channels=320)
-    poseguider = PoseGuider.from_pretrained(pretrained_model_path='outputs_stage1_freeze_refer_TikTok/checkpoint-80000/pose.ckpt')
-    # referencenet = ReferenceNet.from_pretrained(args.pretrained_model_path, subfolder="unet")
-    referencenet = ReferenceNet.from_pretrained('outputs_stage1_freeze_refer_TikTok/checkpoint-80000', subfolder="referencenet")
+    if args.from_scratch:
+        poseguider = PoseGuider(noise_latent_channels=320)
+        referencenet = ReferenceNet.from_pretrained(args.pretrained_model_path, subfolder="unet")
+    else:
+        poseguider = PoseGuider.from_pretrained(pretrained_model_path=args.trained_pose_guider_path)
+        referencenet = ReferenceNet.from_pretrained(args.trained_referencenet_path, subfolder="referencenet")
     if not args.image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
             args.pretrained_model_path, subfolder="unet", 
             unet_additional_kwargs=OmegaConf.to_container(args.unet_additional_kwargs)
         )
     else:
-        # unet = UNet2DConditionModel.from_pretrained(args.pretrained_model_path, subfolder="unet")
-        unet = UNet2DConditionModel.from_pretrained('outputs_stage1_freeze_refer_TikTok/checkpoint-80000', subfolder="unet")
-        # encoder hidden proj
-        # encoder_hid_dim = args.unet_additional_kwargs.encoder_hid_dim
-        # unet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
-        # unet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
+        if args.from_scratch:
+            unet = UNet2DConditionModel.from_pretrained(args.pretrained_model_path, subfolder="unet")
+            # encoder hidden proj
+            # encoder_hid_dim = args.unet_additional_kwargs.encoder_hid_dim
+            # unet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
+            # unet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
+            # referencenet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
+            # referencenet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
+        else:
+            unet = UNet2DConditionModel.from_pretrained(args.trained_unet_path, subfolder="unet")
 
     reference_control_writer = ReferenceNetAttention(referencenet, do_classifier_free_guidance=False, mode='write', fusion_blocks=args.fusion_blocks, batch_size=args.train_batch_size ,is_image=args.image_finetune)
     reference_control_reader = ReferenceNetAttention(unet, do_classifier_free_guidance=False, mode='read', fusion_blocks=args.fusion_blocks, batch_size=args.train_batch_size ,is_image=args.image_finetune)
@@ -145,7 +150,7 @@ def main():
     for name, param in unet.named_parameters():
         for trainable_module_name in args.trainable_modules:
             if trainable_module_name in name:
-                print(name)
+                # print(name)
                 param.requires_grad = True
                 break
 
