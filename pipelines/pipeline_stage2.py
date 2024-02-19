@@ -109,6 +109,9 @@ class AnimatePipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoader
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: int = 1,
         dino_fea: Optional[torch.FloatTensor] = None, # b n d  b 50 768
+        is_long: bool = False,
+        window_size: int = 10,
+        stride: int = 5,
     ):
 
         # 0. Check inputs
@@ -116,6 +119,7 @@ class AnimatePipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoader
 
         # 1. Define call parameters
         batch_size = pose_image.shape[0]
+        video_length = pose_image.shape[1]
         height, width = source_image.shape[-2:]
         frame = pose_image.shape[1]
 
@@ -171,73 +175,140 @@ class AnimatePipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoader
         
         # 7. prepare pose
         latent_pose = self.pose_guider(pose_image)
+        latent_pose = rearrange(latent_pose, "(b f) c h w -> b c f h w", f=frame)
 
         # 8. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
+        
+        if is_long:
+            views = get_views(video_length,window_size=window_size,stride=stride)
+            count = torch.zeros_like(latents)
+            value = torch.zeros_like(latents)
+
         # 9. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        with self.progress_bar(total=num_inference_steps) as progress_bar:
-            for i, t in enumerate(timesteps):
-                # Expand the latents if we are doing classifier free guidance.
-                # The latents are expanded 3 times because for pix2pix the guidance\
-                # is applied for both the text and the input image.
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                latent_pose_input = torch.cat([latent_pose] * 2 ) if do_classifier_free_guidance else latent_pose 
 
-                # concat latents, image_latents in the channel dimension
-                scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+        if is_long:
+            with self.progress_bar(total=num_inference_steps) as progress_bar:
+                for i, t in enumerate(timesteps):
+                    count.zero_()
+                    value.zero_()
+                    if i == 0:
+                        # just once
+                        self.referencenet.to(device=latents.device)
+                        self.referencenet(
+                            ref_image_latents,
+                            torch.zeros_like(t),
+                            encoder_hidden_states=image_embeddings,
+                            return_dict=False,
+                        )
+                        reference_control_reader.update(reference_control_writer)
+                        # Put it on the cpu when it is not needed to save memory.
+                        self.referencenet.to('cpu')
+                    for t_start, t_end in views:
+                        latents_views = latents[:,:,t_start:t_end]
+                        latent_pose_views = latent_pose[:,:,t_start:t_end]
 
-                if i == 0:
-                    # just once
-                    self.referencenet.to(device=latents.device)
-                    self.referencenet(
-                        ref_image_latents,
-                        torch.zeros_like(t),
+                        latent_model_input_views = torch.cat([latents_views] * 2) if do_classifier_free_guidance else latents
+                        latent_pose_input_views = torch.cat([latent_pose_views] * 2 ) if do_classifier_free_guidance else latent_pose
+
+                        # concat latents, image_latents in the channel dimension
+                        scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input_views, t)
+
+                        # predict the noise residual
+                        
+                        noise_pred = self.unet(scaled_latent_model_input, 
+                            t, 
+                            encoder_hidden_states=image_embeddings,
+                            latent_pose=latent_pose_input_views
+                            ).sample
+
+                        if scheduler_is_in_sigma_space:
+                            step_index = (self.scheduler.timesteps == t).nonzero().item()
+                            sigma = self.scheduler.sigmas[step_index]
+                            noise_pred = latent_model_input - sigma * noise_pred
+
+                        # perform guidance
+                        if do_classifier_free_guidance:
+                            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                        if scheduler_is_in_sigma_space:
+                            noise_pred = (noise_pred - latents) / (-sigma)
+
+                        # compute the previous noisy sample x_t -> x_t-1
+                        latents_view_denoised = self.scheduler.step(noise_pred, t, latents_views, **extra_step_kwargs).prev_sample
+                        value[:,:,t_start:t_end] += latents_view_denoised
+                        count[:,:,t_start:t_end] += 1
+                    
+                    latents = torch.where(count>0,value/count,value)
+                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and i % callback_steps == 0:
+                            callback(i, t, latents)
+        else:
+            with self.progress_bar(total=num_inference_steps) as progress_bar:
+                for i, t in enumerate(timesteps):
+                    # Expand the latents if we are doing classifier free guidance.
+                    # The latents are expanded 3 times because for pix2pix the guidance\
+                    # is applied for both the text and the input image.
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_pose_input = torch.cat([latent_pose] * 2 ) if do_classifier_free_guidance else latent_pose 
+
+                    # concat latents, image_latents in the channel dimension
+                    scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                    if i == 0:
+                        # just once
+                        self.referencenet.to(device=latents.device)
+                        self.referencenet(
+                            ref_image_latents,
+                            torch.zeros_like(t),
+                            encoder_hidden_states=image_embeddings,
+                            return_dict=False,
+                        )
+                        reference_control_reader.update(reference_control_writer)
+                        # Put it on the cpu when it is not needed to save memory.
+                        self.referencenet.to('cpu')   
+
+                    # predict the noise residual
+                    # latent_pose_input = rearrange(latent_pose_input, "(b f) c h w -> b c f h w", f=frame)
+                    noise_pred = self.unet(scaled_latent_model_input, 
+                        t, 
                         encoder_hidden_states=image_embeddings,
-                        return_dict=False,
-                    )
-                    reference_control_reader.update(reference_control_writer)
-                    # Put it on the cpu when it is not needed to save memory.
-                    self.referencenet.to('cpu')   
+                        latent_pose=latent_pose_input
+                        ).sample
 
-                # predict the noise residual
-                latent_pose_input = rearrange(latent_pose_input, "(b f) c h w -> b c f h w", f=frame)
-                noise_pred = self.unet(scaled_latent_model_input, 
-                    t, 
-                    encoder_hidden_states=image_embeddings,
-                    latent_pose=latent_pose_input
-                    ).sample
+                    # Hack:
+                    # For karras style schedulers the model does classifer free guidance using the
+                    # predicted_original_sample instead of the noise_pred. So we need to compute the
+                    # predicted_original_sample here if we are using a karras style scheduler.
+                    if scheduler_is_in_sigma_space:
+                        step_index = (self.scheduler.timesteps == t).nonzero().item()
+                        sigma = self.scheduler.sigmas[step_index]
+                        noise_pred = latent_model_input - sigma * noise_pred
 
-                # Hack:
-                # For karras style schedulers the model does classifer free guidance using the
-                # predicted_original_sample instead of the noise_pred. So we need to compute the
-                # predicted_original_sample here if we are using a karras style scheduler.
-                if scheduler_is_in_sigma_space:
-                    step_index = (self.scheduler.timesteps == t).nonzero().item()
-                    sigma = self.scheduler.sigmas[step_index]
-                    noise_pred = latent_model_input - sigma * noise_pred
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                # perform guidance
-                if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    # Hack:
+                    # For karras style schedulers the model does classifer free guidance using the
+                    # predicted_original_sample instead of the noise_pred. But the scheduler.step function
+                    # expects the noise_pred and computes the predicted_original_sample internally. So we
+                    # need to overwrite the noise_pred here such that the value of the computed
+                    # predicted_original_sample is correct.
+                    if scheduler_is_in_sigma_space:
+                        noise_pred = (noise_pred - latents) / (-sigma)
 
-                # Hack:
-                # For karras style schedulers the model does classifer free guidance using the
-                # predicted_original_sample instead of the noise_pred. But the scheduler.step function
-                # expects the noise_pred and computes the predicted_original_sample internally. So we
-                # need to overwrite the noise_pred here such that the value of the computed
-                # predicted_original_sample is correct.
-                if scheduler_is_in_sigma_space:
-                    noise_pred = (noise_pred - latents) / (-sigma)
+                    # compute the previous noisy sample x_t -> x_t-1
+                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
 
-                # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
-
-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                    progress_bar.update()
-                    if callback is not None and i % callback_steps == 0:
-                        callback(i, t, latents)
+                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and i % callback_steps == 0:
+                            callback(i, t, latents)
                         
         # 10. Post-processing
         image = self.decode_latents(latents)  # (b f) c h w
@@ -418,3 +489,12 @@ class AnimatePipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoader
         ref_image_latents = ref_image_latents * self.vae.config.scaling_factor
         #ref_image_latents = torch.cat([ref_image_latents], dim=0)
         return ref_image_latents
+
+def get_views(video_length, window_size=16, stride=4):
+    num_blocks_time = (video_length - window_size) // stride + 1
+    views = []
+    for i in range(num_blocks_time):
+        t_start = int(i * stride)
+        t_end = t_start + window_size
+        views.append((t_start,t_end))
+    return views

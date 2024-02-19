@@ -92,7 +92,7 @@ out_dir = config.out_dir
 if not os.path.exists(out_dir):
     os.makedirs(out_dir)
 
-num_inference_steps = 5
+num_inference_steps = 25
 guidance_scale = config.guidance_scale
 weight_dtype = torch.float16
 
@@ -129,7 +129,6 @@ for i, batch in enumerate(test_dataloader):
 
     dino_fea = clip_image_encoder(clip_ref_image.to(weight_dtype))
     # dino_fea = dino_fea.unsqueeze(1)
-    print(dino_fea.shape) # [bs,1,768]
     edited_images = pipe(
         num_inference_steps=num_inference_steps, 
         guidance_scale=guidance_scale, 
@@ -137,6 +136,9 @@ for i, batch in enumerate(test_dataloader):
         pose_image=pixel_values_pose.to(weight_dtype),
         generator=generator,
         dino_fea = dino_fea,
+        is_long=False,
+        window_size=8,
+        stride=4,
     ).images
     for idx, edited_image in enumerate(edited_images):
         frame_idx = 0
@@ -148,5 +150,4 @@ for i, batch in enumerate(test_dataloader):
             # save_image(grid, os.path.join(out_dir, name2))
             frame_idx += 1
         image_idx +=1
-
 

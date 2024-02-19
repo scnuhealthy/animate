@@ -6,11 +6,11 @@ vae_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/sd-vae-ft-mse"
 clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-base-patch32'
 
 #unet_path: "/GPUFS/sysu_wangkz_2/hzj/outputs_stage1_freeze_refer_Talk/checkpoint-40000"
-unet_path: "outputs_stage2_Talk/checkpoint-2000"
+unet_path: "/data/animate/ckpts/outputs_stage2_ms_0207/checkpoint-3000"
 #pretrained_poseguider_path: "/GPUFS/sysu_wangkz_2/hzj/outputs_stage1_freeze_refer_Talk/checkpoint-40000/pose.ckpt"
-pretrained_poseguider_path: "outputs_stage1_freeze_refer_Talk/checkpoint-15000/pose.ckpt"
+pretrained_poseguider_path: "/data/animate/ckpts/outputs_stage1_ms_0207/checkpoint-30000/pose.ckpt"
 #pretrained_referencenet_path: '/GPUFS/sysu_wangkz_2/hzj/outputs_stage1_freeze_refer_TikTok/checkpoint-80000'
-pretrained_referencenet_path: "outputs_stage1_freeze_refer_Talk/checkpoint-15000"
+pretrained_referencenet_path: "/data/animate/ckpts/outputs_stage1_ms_0207/checkpoint-30000"
 
 # unet_path: "outputs_stage1_freeze_refer_TikTok/checkpoint-80000"
 # pretrained_poseguider_path: "outputs_stage1_freeze_refer_TikTok/checkpoint-80000/pose.ckpt"
@@ -21,24 +21,24 @@ pretrained_referencenet_path: "outputs_stage1_freeze_refer_Talk/checkpoint-15000
 # pretrained_referencenet_path: 'outputs_stage1_freeze_refer/checkpoint-240000'
 
 
-out_dir: 'image_output_stage2'
+out_dir: 'image_output_stage2_ms'
 
 batch_size: 1
 dataloader_num_workers: 4
-guidance_scale: 7.5
+guidance_scale: 0 # 7.5
 
 infer_data:
-  csv_path:     "./data/Talk_test_info.csv"
-  video_folder: "/GPUFS/sysu_wangkz_2/hzj/Talk_dataset"
-  sample_size:  512 # for 40G 256
-  sample_stride: 4
-  sample_n_frames: 16
+  csv_path:     "./data/ms_dataset_0207_val.csv"
+  video_folder: "/data/animate/ms_dataset_0207"
+  sample_size:  768 # for 40G 256
+  sample_stride: 5
+  sample_n_frames: 12
   clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-base-patch32'
-  sub_folder: 'deal_test'
+  sub_folder: 'val'
   is_train: false
 
 unet_additional_kwargs:
-  use_motion_module              : false
+  use_motion_module              : true
   motion_module_resolutions      : [ 1,2,4,8 ]
   unet_use_cross_frame_attention : false
   unet_use_temporal_attention    : false
