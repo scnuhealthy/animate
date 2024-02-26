@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import shutil
 from pathlib import Path
 
 import accelerate
@@ -45,6 +46,7 @@ from models.ReferenceNet import ReferenceNet
 from models.ReferenceNet_attention_fp16 import ReferenceNetAttention
 from models.ReferenceEncoder import ReferenceEncoder
 from data.dataset import TikTok, collate_fn, UBC_Fashion
+#from data.talk_dataset import Talk_Dataset
 from data.talk_dataset import Talk_Dataset
 logger = get_logger(__name__, log_level="INFO")
 
@@ -107,7 +109,7 @@ def main():
     if accelerator.is_main_process:
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
-
+            shutil.copy('config/train_stage1.yaml', args.output_dir)
     # image_embedder = FrozenOpenCLIPImageEmbedderV2(freeze=True, model_path=args.pretrained_clip_path)
     clip_image_encoder = ReferenceEncoder(model_path=args.clip_model_path)
     # Load scheduler, tokenizer and models.
@@ -128,11 +130,11 @@ def main():
         if args.from_scratch:
             unet = UNet2DConditionModel.from_pretrained(args.pretrained_model_path, subfolder="unet")
             # encoder hidden proj
-            # encoder_hid_dim = args.unet_additional_kwargs.encoder_hid_dim
-            # unet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
-            # unet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
-            # referencenet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
-            # referencenet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
+            #encoder_hid_dim = args.unet_additional_kwargs.encoder_hid_dim
+            #unet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
+            #unet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
+            #referencenet.register_to_config(encoder_hid_dim=encoder_hid_dim, encoder_hid_dim_type='text_proj')
+            #referencenet.encoder_hid_proj = nn.Linear(encoder_hid_dim, unet.cross_attention_dim)
         else:
             unet = UNet2DConditionModel.from_pretrained(args.trained_unet_path, subfolder="unet")
 
@@ -142,7 +144,7 @@ def main():
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
     clip_image_encoder.requires_grad_(False)
-    referencenet.requires_grad_(False)
+    # referencenet.requires_grad_(False)
 
     # Set unet trainable parameters
     unet.requires_grad_(False)
@@ -179,7 +181,7 @@ def main():
                 elif i==1:
                     torch.save(model.state_dict(), os.path.join(output_dir, "pose.ckpt"))
                 elif i==2:
-                    # model.save_pretrained(os.path.join(output_dir, "referencenet"))
+                    model.save_pretrained(os.path.join(output_dir, "referencenet"))
                     pass 
                 else:
                     print('!!!!!!!!!!!!')
@@ -230,7 +232,7 @@ def main():
     train_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
     if args.image_finetune:
         train_params += list(filter(lambda p: p.requires_grad, poseguider.parameters())) 
-                   # list(filter(lambda p: p.requires_grad, referencenet.parameters()))
+        train_params += list(filter(lambda p: p.requires_grad, referencenet.parameters()))
     
     print(len(train_params))
     optimizer = optimizer_cls(
@@ -257,6 +259,7 @@ def main():
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
+    print("debug", args.dataloader_num_workers)
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -351,12 +354,14 @@ def main():
             step +=1
         # continue
 
+    from datetime import datetime
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
 
         train_loss = 0.0
         # for step, batch in enumerate(train_dataloader):
         for step_, batch in enumerate(train_dataloader):
+            #print("begin",datetime.now())
             step +=1
             # Skip steps until we reach the resumed step
 
@@ -365,7 +370,6 @@ def main():
             clip_ref_image = batch["clip_ref_image"].to(weight_dtype)
             pixel_values_ref_img = batch["pixel_values_ref_img"].to(weight_dtype)
             drop_image_embeds = batch["drop_image_embeds"]
-
             dino_fea = clip_image_encoder(clip_ref_image)
             # dino_fea = dino_fea.unsqueeze(1)
             # print('000', pixel_values.shape)
@@ -468,12 +472,11 @@ def main():
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
-
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
-
             if global_step >= args.max_train_steps:
                 break
+            #print("end", datetime.now())
 
     # # Create the pipeline using the trained modules and save it.
     # accelerator.wait_for_everyone()
