@@ -499,7 +499,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             "CrossAttnUpBlock3D",
             "CrossAttnUpBlock3D"
         ]
-
+        config["mid_block_type"] = "UNetMidBlock3DCrossAttn"
         from diffusers.utils import WEIGHTS_NAME
         # 用于加载accelerator存的模型
         import safetensors
