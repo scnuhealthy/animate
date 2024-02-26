@@ -21,7 +21,7 @@ class TikTok(Dataset):
             self,
             csv_path, video_folder,
             sample_size=768, sample_stride=4, sample_n_frames=24,
-            is_image=False, clip_model_path="openai/clip-vit-base-patch32",
+            is_image=False, clip_model_path="openai/clip-vit-base-patch32", is_cross_pose=False
         ):
         zero_rank_print(f"loading annotations from {csv_path} ...")
         with open(csv_path, 'r') as csvfile:
@@ -43,12 +43,13 @@ class TikTok(Dataset):
             transforms.CenterCrop(sample_size),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
         ])
+        self.is_cross_pose = is_cross_pose
 
     def __len__(self):
         return self.length
     
-    def get_batch(self,idx):
-        video_dict = self.dataset[idx]
+    def get_batch(self,idx, pose_idx):
+        video_dict = self.dataset[pose_idx]
         folder_id, folder_name = video_dict['folder_id'], video_dict['folder_name']
         
         video_dir    =    os.path.join(self.video_folder, folder_name, f"{folder_name}.mp4")
@@ -56,7 +57,13 @@ class TikTok(Dataset):
         
         video_reader = VideoReader(video_dir)
         video_reader_pose = VideoReader(video_pose_dir)
-        
+
+        if self.is_cross_pose:
+            ref_video_dict = self.dataset[idx]
+            ref_folder_id, ref_folder_name = ref_video_dict['folder_id'], ref_video_dict['folder_name']
+            ref_video_dir    =    os.path.join(self.video_folder, ref_folder_name, f"{ref_folder_name}.mp4")
+            ref_video_reader = VideoReader(ref_video_dir)
+            ref_video_length = len(ref_video_reader)
         
         assert len(video_reader) == len(video_reader_pose), f"len(video_reader) != len(video_reader_pose) in video {idx}"
         
@@ -80,9 +87,13 @@ class TikTok(Dataset):
         if self.is_image:
             pixel_values = pixel_values[0]
             pixel_values_pose = pixel_values_pose[0]
-        
-        ref_img_idx = random.randint(0, video_length - 1)
-        ref_img = video_reader[ref_img_idx]
+
+        if self.is_cross_pose:
+            ref_img_idx = random.randint(0, ref_video_length - 1)
+            ref_img = ref_video_reader[ref_img_idx]
+        else:
+            ref_img_idx = random.randint(0, video_length - 1)
+            ref_img = video_reader[ref_img_idx]
         ref_img_pil = Image.fromarray(ref_img.asnumpy())
         
         clip_ref_image = self.clip_image_processor(images=ref_img_pil, return_tensors="pt").pixel_values
@@ -98,12 +109,15 @@ class TikTok(Dataset):
         return pixel_values, pixel_values_pose, clip_ref_image, pixel_values_ref_img
     
     def __getitem__(self, idx):
-        while True:
-            try:
-                pixel_values, pixel_values_pose, clip_ref_image, pixel_values_ref_img = self.get_batch(idx)
-                break
-            except Exception as e:
-                idx = random.randint(0, self.length-1)
+        #while True:
+            #try:
+        if self.is_cross_pose:
+            pixel_values, pixel_values_pose, clip_ref_image, pixel_values_ref_img = self.get_batch(idx, pose_idx=0)
+        else:
+            pixel_values, pixel_values_pose, clip_ref_image, pixel_values_ref_img = self.get_batch(idx, pose_idx=idx)
+            #     break
+            # except Exception as e:
+            #     idx = random.randint(0, self.length-1)
         
         pixel_values = self.pixel_transforms(pixel_values)
         pixel_values_pose = self.pixel_transforms(pixel_values_pose)
@@ -269,25 +283,26 @@ if __name__ == "__main__":
 
     dataset = TikTok(
         csv_path="TikTok_info.csv",
-        video_folder="../../TikTok_dataset2/TikTok_dataset",
+        video_folder="/data/TikTok_dataset2/TikTok_dataset",
         sample_size=256,
         sample_stride=4, sample_n_frames=16,
         is_image=True,
-        clip_model_path = "../pretrained_models/clip-vit-base-patch32"
+        clip_model_path = "../pretrained_models/clip-vit-base-patch32",
+        is_cross_pose = True
     )    
-    
-    dataloader = torch.utils.data.DataLoader(dataset, collate_fn=collate_fn,batch_size=4, num_workers=0,)
-    # dataloader = torch.utils.data.DataLoader(dataset,batch_size=1, num_workers=0,)
+    dataset[0]
+    # dataloader = torch.utils.data.DataLoader(dataset, collate_fn=collate_fn,batch_size=4, num_workers=0,)
+    # # dataloader = torch.utils.data.DataLoader(dataset,batch_size=1, num_workers=0,)
 
-    for idx, batch in enumerate(dataloader):
-        print(idx)
-        # print(batch["pixel_values"])
-        print(batch["pixel_values"].size())
-        print(batch["pixel_values_pose"].size())
-        print(batch["clip_ref_image"].size())
-        print(batch["pixel_values_ref_img"].size())
-        print(batch["drop_image_embeds"].size()) # torch.Size([4])
-        break
+    # for idx, batch in enumerate(dataloader):
+    #     print(idx)
+    #     # print(batch["pixel_values"])
+    #     print(batch["pixel_values"].size())
+    #     print(batch["pixel_values_pose"].size())
+    #     print(batch["clip_ref_image"].size())
+    #     print(batch["pixel_values_ref_img"].size())
+    #     print(batch["drop_image_embeds"].size()) # torch.Size([4])
+    #     break
 
     # python3 -m data.dataset
         
