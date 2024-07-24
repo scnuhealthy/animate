@@ -3,7 +3,7 @@ from_scratch: true
 
 output_dir: "/data/animate/ckpts/outputs_stage1_test"
 logging_dir: "log"
-pretrained_model_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/stable-diffusion-v2-1"
+pretrained_model_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/stable-diffusion-v1-5"
 pretrained_vae_path: "/GPUFS/sysu_wangkz_2/hzj/pretrained_models/sd-vae-ft-mse"
 pretrained_clip_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-large-patch14'
 clip_model_path: '/GPUFS/sysu_wangkz_2/hzj/pretrained_models/clip-vit-large-patch14'
